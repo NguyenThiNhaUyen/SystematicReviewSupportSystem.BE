@@ -323,6 +323,28 @@ namespace SRSS.IAM.Services.DataExtractionService
                 throw new ArgumentException($"User {reviewerId} must be a Member (not a Leader) to be assigned as a reviewer.");
         }
 
+        public async Task<DataExtractionProcessResponse?> GetByIdAsync(Guid extractionProcessId)
+        {
+            var entity = await _unitOfWork.DataExtractionProcesses.FindSingleAsync(
+                dp => dp.Id == extractionProcessId);
+
+            if (entity == null)
+                return null;
+
+            return new DataExtractionProcessResponse
+            {
+                Id = entity.Id,
+                ReviewProcessId = entity.ReviewProcessId,
+                Status = entity.Status,
+                StatusText = entity.Status.ToString(),
+                StartedAt = entity.StartedAt,
+                CompletedAt = entity.CompletedAt,
+                Notes = entity.Notes,
+                CreatedAt = entity.CreatedAt,
+                ModifiedAt = entity.ModifiedAt
+            };
+        }
+
         public async Task<DataExtractionProcessResponse> StartAsync(Guid extractionProcessId)
         {
             var entity = await _unitOfWork.DataExtractionProcesses.GetQueryable()

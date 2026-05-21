@@ -258,6 +258,14 @@ namespace SRSS.IAM.Services.QualityAssessmentService
         }
 
         // ==================== Quality Assessment Process ====================
+        public async Task<QualityAssessmentProcessResponse?> GetProcessByIdAsync(Guid id)
+        {
+            var process = await _unitOfWork.QualityAssessmentProcesses.FindSingleAsync(
+                p => p.Id == id);
+
+            return process?.ToResponse();
+        }
+
         public async Task<QualityAssessmentProcessResponse?> GetProcessByReviewProcessIdAsync(Guid reviewProcessId)
         {
             var process = await _unitOfWork.QualityAssessmentProcesses.FindSingleAsync(

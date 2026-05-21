@@ -142,6 +142,7 @@ namespace SRSS.IAM.API
             });
 
             app.UseSwaggerUI();
+            app.MapGet("/", () => Results.Redirect("/swagger")).ExcludeFromDescription();
             app.UseCors("AllowAll");
 
             app.UseHttpsRedirection();

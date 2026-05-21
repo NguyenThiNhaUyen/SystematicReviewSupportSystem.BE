@@ -17,6 +17,23 @@ namespace SRSS.IAM.API.Controllers
             _extractionService = extractionService;
         }
 
+        [HttpGet("{extractionProcessId}")]
+        public async Task<ActionResult<ApiResponse<DataExtractionProcessResponse>>> GetById(
+            [FromRoute] Guid extractionProcessId)
+        {
+            var result = await _extractionService.GetByIdAsync(extractionProcessId);
+            if (result == null)
+            {
+                return NotFound(new ApiResponse<DataExtractionProcessResponse>
+                {
+                    IsSuccess = false,
+                    Message = "Data extraction process not found."
+                });
+            }
+
+            return Ok(result, "Data extraction process retrieved successfully.");
+        }
+
         [HttpGet("{extractionProcessId}/dashboard")]
         public async Task<ActionResult<ApiResponse<ExtractionDashboardResponseDto>>> GetDashboard(
             [FromRoute] Guid extractionProcessId,

@@ -102,6 +102,15 @@ namespace SRSS.IAM.API.Controllers
 		}
 
 		// ==================== Quality Assessment Process ====================
+		[HttpGet("{id}")]
+		public async Task<ActionResult<ApiResponse<QualityAssessmentProcessResponse>>> GetProcessById(Guid id)
+		{
+			var result = await _service.GetProcessByIdAsync(id);
+			if (result == null)
+				return NotFound(new ApiResponse<QualityAssessmentProcessResponse> { IsSuccess = false, Message = "Process not found" });
+			return Ok(result, "Láº¥y thÃ´ng tin QA process thÃ nh cÃ´ng");
+		}
+
 		[HttpGet("process/{reviewProcessId}")]
 		public async Task<ActionResult<ApiResponse<QualityAssessmentProcessResponse>>> GetProcessByReviewProcessId(Guid reviewProcessId)
 		{
