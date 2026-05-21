@@ -4,6 +4,33 @@ services:
       context: .
       dockerfile: SRSS.IAM/SRSS.IAM.API/Dockerfile
     container_name: systematic-review-be
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__SRSS_IAM_DB: Host=db; Port=5432; Username=postgres; Password=12345; Database=SRSS.IAM
     ports:
       - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
     restart: always
+
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: systematic-review-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 12345
+      POSTGRES_DB: SRSS.IAM
+    ports:
+      - "5433:5432"
+    volumes:
+      - systematic-review-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d SRSS.IAM"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+volumes:
+  systematic-review-db-data:
