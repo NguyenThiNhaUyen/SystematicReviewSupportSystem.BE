@@ -7,10 +7,13 @@ services:
     environment:
       ASPNETCORE_URLS: http://+:8080
       ConnectionStrings__SRSS_IAM_DB: Host=db; Port=5432; Username=postgres; Password=12345; Database=SRSS.IAM
+      ConnectionStrings__Redis: redis:6379,allowAdmin=true,connectTimeout=10000,syncTimeout=10000,asyncTimeout=10000,connectRetry=5,abortConnect=false,keepAlive=60
     ports:
       - "8080:8080"
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: always
 
@@ -27,6 +30,18 @@ services:
       - systematic-review-db-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d SRSS.IAM"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  redis:
+    image: redis:7-alpine
+    container_name: systematic-review-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
