@@ -1,0 +1,9 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: SRSS.IAM/SRSS.IAM.API/Dockerfile
+    container_name: systematic-review-be
+    ports:
+      - "8080:8080"
+    restart: always
