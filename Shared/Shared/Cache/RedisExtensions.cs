@@ -6,6 +6,8 @@ namespace Shared.Cache
 {
     public static class RedisExtensions
     {
+        private const string DefaultRedisConnectionString = "systematic-review-redis:6379,allowAdmin=true,connectTimeout=10000,syncTimeout=10000,asyncTimeout=10000,connectRetry=5,abortConnect=false,keepAlive=60";
+
         public static IServiceCollection AddRedisCache(
             this IServiceCollection services,
             IConfiguration configuration,
@@ -16,7 +18,7 @@ namespace Shared.Cache
             {
                 var connectionString = configuration.GetConnectionString("Redis") 
                     ?? configuration[connectionStringKey] 
-                    ?? "localhost:6379";
+                    ?? DefaultRedisConnectionString;
                 
                 var configurationOptions = ConfigurationOptions.Parse(connectionString);
                 configurationOptions.AbortOnConnectFail = false;
@@ -44,7 +46,7 @@ namespace Shared.Cache
                 .AddRedis(
                     configuration.GetConnectionString("Redis") 
                     ?? configuration[connectionStringKey] 
-                    ?? "localhost:6379",
+                    ?? DefaultRedisConnectionString,
                     name: "redis",
                     tags: new[] { "ready", "redis" });
 

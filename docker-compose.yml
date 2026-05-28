@@ -11,13 +11,13 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      db:
+      systematic-review-db:
         condition: service_healthy
-      redis:
+      systematic-review-redis:
         condition: service_healthy
     restart: always
 
-  db:
+  systematic-review-db:
     image: pgvector/pgvector:pg16
     container_name: systematic-review-db
     environment:
@@ -35,7 +35,7 @@ services:
       retries: 5
     restart: always
 
-  redis:
+  systematic-review-redis:
     image: redis:7-alpine
     container_name: systematic-review-redis
     ports:
