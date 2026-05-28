@@ -6,7 +6,7 @@ namespace Shared.Cache
 {
     public static class RedisExtensions
     {
-        private const string DefaultRedisConnectionString = "systematic-review-redis:6379,allowAdmin=true,connectTimeout=10000,syncTimeout=10000,asyncTimeout=10000,connectRetry=5,abortConnect=false,keepAlive=60";
+        private const string DefaultRedisConnectionString = "redis:6379,allowAdmin=true,connectTimeout=10000,syncTimeout=10000,asyncTimeout=10000,connectRetry=5,abortConnect=false,keepAlive=60";
 
         private static string GetRedisConnectionString(IConfiguration configuration, string connectionStringKey)
         {
@@ -25,6 +25,10 @@ namespace Shared.Cache
             IConfiguration configuration,
             string connectionStringKey = "ConnectionStrings:Redis")
         {
+            var startupConnectionString = GetRedisConnectionString(configuration, connectionStringKey);
+            Console.WriteLine("=== DEBUG REDIS CONNECTION STRING ===");
+            Console.WriteLine(startupConnectionString);
+
             // Register ConnectionMultiplexer as Singleton
             services.AddSingleton<IConnectionMultiplexer>(sp =>
             {
