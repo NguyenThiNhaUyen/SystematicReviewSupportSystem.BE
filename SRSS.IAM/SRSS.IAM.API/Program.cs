@@ -20,7 +20,10 @@ namespace SRSS.IAM.API
         public static void Main(string[] args)
         {
 
-            Env.Load();
+            if (!string.Equals(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"), "true", StringComparison.OrdinalIgnoreCase))
+            {
+                Env.Load();
+            }
 
             var builder = WebApplication.CreateBuilder(args);
 
