@@ -8,6 +8,9 @@ services:
       ASPNETCORE_URLS: "http://+:8080"
       ConnectionStrings__SRSS_IAM_DB: "Host=systematic-review-db;Port=5432;Username=postgres;Password=12345;Database=SRSS.IAM"
       ConnectionStrings__Redis: "systematic-review-redis:6379,allowAdmin=true,connectTimeout=10000,syncTimeout=10000,asyncTimeout=10000,connectRetry=5,abortConnect=false,keepAlive=60"
+      Redis__ConnectionString: "systematic-review-redis:6379,allowAdmin=true,connectTimeout=10000,syncTimeout=10000,asyncTimeout=10000,connectRetry=5,abortConnect=false,keepAlive=60"
+      Redis__Host: "systematic-review-redis"
+      Redis__Port: "6379"
     ports:
       - "8080:8080"
     depends_on:

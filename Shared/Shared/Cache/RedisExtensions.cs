@@ -8,6 +8,18 @@ namespace Shared.Cache
     {
         private const string DefaultRedisConnectionString = "systematic-review-redis:6379,allowAdmin=true,connectTimeout=10000,syncTimeout=10000,asyncTimeout=10000,connectRetry=5,abortConnect=false,keepAlive=60";
 
+        private static string GetRedisConnectionString(IConfiguration configuration, string connectionStringKey)
+        {
+            var host = configuration["Redis:Host"];
+            var port = configuration["Redis:Port"] ?? "6379";
+
+            return configuration.GetConnectionString("Redis")
+                ?? configuration[connectionStringKey]
+                ?? configuration["Redis:ConnectionString"]
+                ?? (string.IsNullOrWhiteSpace(host) ? null : $"{host}:{port}")
+                ?? DefaultRedisConnectionString;
+        }
+
         public static IServiceCollection AddRedisCache(
             this IServiceCollection services,
             IConfiguration configuration,
@@ -16,9 +28,7 @@ namespace Shared.Cache
             // Register ConnectionMultiplexer as Singleton
             services.AddSingleton<IConnectionMultiplexer>(sp =>
             {
-                var connectionString = configuration.GetConnectionString("Redis") 
-                    ?? configuration[connectionStringKey] 
-                    ?? DefaultRedisConnectionString;
+                var connectionString = GetRedisConnectionString(configuration, connectionStringKey);
                 
                 var configurationOptions = ConfigurationOptions.Parse(connectionString);
                 configurationOptions.AbortOnConnectFail = false;
@@ -44,9 +54,7 @@ namespace Shared.Cache
             // Add health check
             services.AddHealthChecks()
                 .AddRedis(
-                    configuration.GetConnectionString("Redis") 
-                    ?? configuration[connectionStringKey] 
-                    ?? DefaultRedisConnectionString,
+                    GetRedisConnectionString(configuration, connectionStringKey),
                     name: "redis",
                     tags: new[] { "ready", "redis" });
 
