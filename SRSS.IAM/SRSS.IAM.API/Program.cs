@@ -1,4 +1,5 @@
 using DotNetEnv;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.StackExchangeRedis;
@@ -41,8 +42,23 @@ namespace SRSS.IAM.API
             builder.Services.ConfigureJWT(config);
             builder.Services.ConfigureGlobalException();
 
-            // Add CORS policy to allow all origins (for development/testing purposes)
-            builder.Services.AddCorsPolicy("AllowAll", config);
+            builder.Services.AddCors(options =>
+            {
+                options.AddPolicy("AllowFrontend", policy =>
+                {
+                    policy.WithOrigins("https://slr.hyperdatalab.org")
+                          .AllowAnyHeader()
+                          .AllowAnyMethod()
+                          .AllowCredentials();
+                });
+            });
+
+            builder.Services.Configure<ForwardedHeadersOptions>(options =>
+            {
+                options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+                options.KnownNetworks.Clear();
+                options.KnownProxies.Clear();
+            });
 
             // Configure logging (Console + Debug)
             builder.Logging.ClearProviders();
@@ -148,9 +164,10 @@ namespace SRSS.IAM.API
 
             app.UseSwaggerUI();
             app.MapGet("/", () => Results.Redirect("/swagger")).ExcludeFromDescription();
-            app.UseCors("AllowAll");
 
+            app.UseForwardedHeaders();
             app.UseHttpsRedirection();
+            app.UseCors("AllowFrontend");
             app.UseAuthentication();
             app.UseAuthorization();
             app.UseExceptionHandler();
