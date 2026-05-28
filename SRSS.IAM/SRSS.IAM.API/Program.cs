@@ -57,6 +57,8 @@ namespace SRSS.IAM.API
             // Database connection
             var connectionString = config.GetConnectionString("SRSS_IAM_DB")
                 ?? throw new InvalidOperationException("ConnectionStrings:SRSS_IAM_DB is required");
+            Console.WriteLine("=== DEBUG CONNECTION STRING ===");
+            Console.WriteLine(connectionString);
             // builder.Services.AddDbContext<AppDbContext>(options =>
             //     options.UseNpgsql(connectionString));
 
