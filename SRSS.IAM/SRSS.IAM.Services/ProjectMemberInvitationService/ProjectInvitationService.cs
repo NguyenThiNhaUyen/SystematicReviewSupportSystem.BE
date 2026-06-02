@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Shared.Exceptions;
 using SRSS.IAM.Repositories.Entities;
 using SRSS.IAM.Repositories.UnitOfWork;
 using SRSS.IAM.Services.DTOs.ProjectMemberInvitation;
@@ -21,17 +22,36 @@ namespace SRSS.IAM.Services.ProjectMemberInvitationService
 
         public async Task CreateInvitationsAsync(Guid projectId, Guid inviterUserId, CreateProjectInvitationRequest request)
         {
-            // Existing implementation...
+            if (request.UserIds == null || request.UserIds.Count == 0)
+            {
+                throw new BadRequestException("At least one user must be selected.");
+            }
+
+            if (!Enum.IsDefined(typeof(ProjectRole), request.Role))
+            {
+                throw new BadRequestException("Invalid project role.");
+            }
+
+            if (request.ExpiredAt.HasValue && request.ExpiredAt.Value <= DateTimeOffset.UtcNow)
+            {
+                throw new BadRequestException("Invitation expiration must be in the future.");
+            }
+
+            if (request.UserIds.Distinct().Count() != request.UserIds.Count)
+            {
+                throw new BadRequestException("Duplicate users are not allowed in one invitation request.");
+            }
+
             var project = await _unitOfWork.SystematicReviewProjects.FindSingleAsync(p => p.Id == projectId, isTracking: true);
             if (project == null)
             {
-                throw new InvalidOperationException($"Project with ID {projectId} not found.");
+                throw new NotFoundException($"Project with ID {projectId} not found.");
             }
 
             var inviter = await _unitOfWork.Users.FindSingleAsync(u => u.Id == inviterUserId);
             if (inviter == null)
             {
-                throw new InvalidOperationException("Inviter not found.");
+                throw new UnauthorizedException("Inviter not found.");
             }
 
             var inviterProjectMembers = await _unitOfWork.SystematicReviewProjects.GetMembersByProjectIdAsync(projectId);
@@ -42,12 +62,12 @@ namespace SRSS.IAM.Services.ProjectMemberInvitationService
 
             if (!isSystemAdmin && !isProjectLeader)
             {
-                throw new InvalidOperationException("Unauthorized: Only Admins or Project Leaders can invite members.");
+                throw new ForbiddenException("Only Admins or Project Leaders can invite members.");
             }
 
             if (!isSystemAdmin && request.Role == ProjectRole.Leader)
             {
-                throw new InvalidOperationException("Unauthorized: Only Admins can invite a Project Leader.");
+                throw new ForbiddenException("Only Admins can invite a Project Leader.");
             }
 
             var invitations = new List<ProjectMemberInvitation>();
@@ -60,35 +80,35 @@ namespace SRSS.IAM.Services.ProjectMemberInvitationService
                 {
                     if (userId == inviterUserId)
                     {
-                        throw new ArgumentException("Inviter cannot invite themselves.");
+                        throw new BadRequestException("Inviter cannot invite themselves.");
                     }
 
                     var invitedUser = await _unitOfWork.Users.FindSingleAsync(u => u.Id == userId);
                     if (invitedUser == null)
                     {
-                        throw new ArgumentException($"User with ID {userId} not found.");
+                        throw new NotFoundException($"User with ID {userId} not found.");
                     }
 
                     if (members.Any(m => m.UserId == userId))
                     {
-                        throw new ArgumentException($"User with ID {userId} is already a member of this project.");
+                        throw new ConflictException($"User with ID {userId} is already a member of this project.", "PROJECT_MEMBER_ALREADY_EXISTS");
                     }
 
                     if (await _unitOfWork.SystematicReviewProjects.ExistsPendingInvitationAsync(projectId, userId))
                     {
-                        throw new ArgumentException($"User with ID {userId} already has a pending invitation for this project.");
+                        throw new ConflictException($"User with ID {userId} already has a pending invitation for this project.", "PENDING_INVITATION_EXISTS");
                     }
 
                     if (request.Role == ProjectRole.Leader)
                     {
                         if (await _unitOfWork.SystematicReviewProjects.ProjectHasLeaderAsync(projectId))
                         {
-                            throw new ArgumentException("Project already has a leader.");
+                            throw new ConflictException("Project already has a leader.", "PROJECT_LEADER_EXISTS");
                         }
 
                         if (await _unitOfWork.SystematicReviewProjects.HasPendingLeaderInvitationAsync(projectId))
                         {
-                            throw new ArgumentException("Project already has a pending leader invitation.");
+                            throw new ConflictException("Project already has a pending leader invitation.", "PENDING_LEADER_INVITATION_EXISTS");
                         }
                     }
 
@@ -146,7 +166,7 @@ namespace SRSS.IAM.Services.ProjectMemberInvitationService
 
             if (user?.Role != Role.Admin && member?.Role != ProjectRole.Leader)
             {
-                throw new InvalidOperationException("Unauthorized: Only Admins or Project Leaders can view project invitations.");
+                throw new ForbiddenException("Only Admins or Project Leaders can view project invitations.");
             }
 
             var invitations = await _unitOfWork.ProjectMemberInvitations.GetByProjectIdAsync(projectId, status);
@@ -161,14 +181,14 @@ namespace SRSS.IAM.Services.ProjectMemberInvitationService
 
             if (invitation == null)
             {
-                throw new InvalidOperationException($"Invitation with ID {invitationId} not found.");
+                throw new NotFoundException($"Invitation with ID {invitationId} not found.");
             }
 
             var user = await _unitOfWork.Users.FindSingleAsync(u => u.Id == currentUserId);
 
             if (user?.Role != Role.Admin && invitation.InvitedUserId != currentUserId)
             {
-                throw new InvalidOperationException("Unauthorized: You do not have permission to view this invitation.");
+                throw new ForbiddenException("You do not have permission to view this invitation.");
             }
 
             return invitation.ToResponse();
@@ -179,25 +199,25 @@ namespace SRSS.IAM.Services.ProjectMemberInvitationService
             var invitation = await _unitOfWork.ProjectMemberInvitations.GetByIdWithDetailsAsync(invitationId);
 
             if (invitation == null)
-                throw new InvalidOperationException("Invitation not found.");
+                throw new NotFoundException("Invitation not found.");
 
             if (invitation.InvitedUserId != currentUserId)
-                throw new InvalidOperationException("Unauthorized: This invitation is not for you.");
+                throw new ForbiddenException("This invitation is not for you.");
 
             if (invitation.Status != ProjectMemberInvitationStatus.Pending)
-                throw new InvalidOperationException($"Cannot accept invitation in {invitation.Status} status.");
+                throw new ConflictException($"Cannot accept invitation in {invitation.Status} status.", "INVITATION_NOT_PENDING");
 
             if (invitation.ExpiredAt.HasValue && invitation.ExpiredAt < DateTimeOffset.UtcNow)
             {
                 invitation.Expire();
                 await _unitOfWork.SaveChangesAsync();
-                throw new InvalidOperationException("This invitation has expired.");
+                throw new ConflictException("This invitation has expired.", "INVITATION_EXPIRED");
             }
 
             var members = await _unitOfWork.SystematicReviewProjects.GetMembersByProjectIdAsync(invitation.ProjectId);
             if (members.Any(m => m.UserId == currentUserId))
             {
-                throw new InvalidOperationException("You are already a member of this project.");
+                throw new ConflictException("You are already a member of this project.", "PROJECT_MEMBER_ALREADY_EXISTS");
             }
 
             await _unitOfWork.BeginTransactionAsync();
@@ -243,13 +263,13 @@ namespace SRSS.IAM.Services.ProjectMemberInvitationService
             var invitation = await _unitOfWork.ProjectMemberInvitations.GetByIdWithDetailsAsync(invitationId);
 
             if (invitation == null)
-                throw new InvalidOperationException("Invitation not found.");
+                throw new NotFoundException("Invitation not found.");
 
             if (invitation.InvitedUserId != currentUserId)
-                throw new InvalidOperationException("Unauthorized.");
+                throw new ForbiddenException("This invitation is not for you.");
 
             if (invitation.Status != ProjectMemberInvitationStatus.Pending)
-                throw new InvalidOperationException("Invitation is no longer pending.");
+                throw new ConflictException("Invitation is no longer pending.", "INVITATION_NOT_PENDING");
 
             invitation.Reject(request.ResponseMessage);
             await _unitOfWork.SaveChangesAsync();
@@ -281,19 +301,34 @@ namespace SRSS.IAM.Services.ProjectMemberInvitationService
             var invitation = await _unitOfWork.ProjectMemberInvitations.GetByIdWithDetailsAsync(invitationId);
 
             if (invitation == null)
-                throw new InvalidOperationException("Invitation not found.");
+                throw new NotFoundException("Invitation not found.");
 
+            await CancelInvitationAsync(invitation, currentUserId);
+        }
+
+        public async Task CancelInvitationAsync(Guid projectId, Guid invitationId, Guid currentUserId)
+        {
+            var invitation = await _unitOfWork.ProjectMemberInvitations.GetByIdWithDetailsAsync(invitationId);
+
+            if (invitation == null || invitation.ProjectId != projectId)
+                throw new NotFoundException("Invitation not found in this project.");
+
+            await CancelInvitationAsync(invitation, currentUserId);
+        }
+
+        private async Task CancelInvitationAsync(ProjectMemberInvitation invitation, Guid currentUserId)
+        {
             var user = await _unitOfWork.Users.FindSingleAsync(u => u.Id == currentUserId);
             var members = await _unitOfWork.SystematicReviewProjects.GetMembersByProjectIdAsync(invitation.ProjectId);
             var member = members.FirstOrDefault(m => m.UserId == currentUserId);
 
             if (user?.Role != Role.Admin && member?.Role != ProjectRole.Leader)
             {
-                throw new InvalidOperationException("Unauthorized: Only Admins or Project Leaders can cancel invitations.");
+                throw new ForbiddenException("Only Admins or Project Leaders can cancel invitations.");
             }
 
             if (invitation.Status != ProjectMemberInvitationStatus.Pending)
-                throw new InvalidOperationException("Only Pending invitations can be cancelled.");
+                throw new ConflictException("Only Pending invitations can be cancelled.", "INVITATION_NOT_PENDING");
 
             invitation.Cancel();
             await _unitOfWork.SaveChangesAsync();

@@ -266,6 +266,38 @@ namespace SRSS.IAM.API.Controllers
         }
 
         /// <summary>
+        /// Get invitations for a project
+        /// </summary>
+        /// <param name="projectId">Project ID</param>
+        /// <param name="status">Optional invitation status filter</param>
+        /// <returns>List of project invitations</returns>
+        [HttpGet("{projectId}/invitations")]
+        public async Task<ActionResult<ApiResponse<IEnumerable<ProjectInvitationResponse>>>> GetProjectInvitations(
+            [FromRoute] Guid projectId,
+            [FromQuery] ProjectMemberInvitationStatus? status = ProjectMemberInvitationStatus.Pending)
+        {
+            var (userId, _) = _currentUserService.GetCurrentUser();
+            var result = await _invitationService.GetProjectInvitationsAsync(projectId, Guid.Parse(userId), status);
+            return Ok(result, "Project invitations retrieved successfully.");
+        }
+
+        /// <summary>
+        /// Cancel a pending invitation in a project
+        /// </summary>
+        /// <param name="projectId">Project ID</param>
+        /// <param name="invitationId">Invitation ID</param>
+        /// <returns>Success response</returns>
+        [HttpDelete("{projectId}/invitations/{invitationId}")]
+        public async Task<ActionResult<ApiResponse>> CancelProjectInvitation(
+            [FromRoute] Guid projectId,
+            [FromRoute] Guid invitationId)
+        {
+            var (userId, _) = _currentUserService.GetCurrentUser();
+            await _invitationService.CancelInvitationAsync(projectId, invitationId, Guid.Parse(userId));
+            return Ok("Invitation cancelled successfully.");
+        }
+
+        /// <summary>
         /// Get all project members except Leader who are not assigned to a specific paper
         /// </summary>
         /// <param name="projectId">Project ID</param>

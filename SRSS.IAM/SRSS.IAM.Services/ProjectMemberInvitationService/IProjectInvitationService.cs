@@ -11,5 +11,6 @@ namespace SRSS.IAM.Services.ProjectMemberInvitationService
         Task AcceptInvitationAsync(Guid invitationId, Guid currentUserId);
         Task RejectInvitationAsync(Guid invitationId, Guid currentUserId, RejectInvitationRequest request);
         Task CancelInvitationAsync(Guid invitationId, Guid currentUserId);
+        Task CancelInvitationAsync(Guid projectId, Guid invitationId, Guid currentUserId);
     }
 }

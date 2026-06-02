@@ -33,6 +33,11 @@ namespace SRSS.IAM.Repositories.Configurations
                             .HasConversion<int>()
                             .IsRequired();
 
+                     builder.Property(x => x.Role)
+                            .HasColumnName("role")
+                            .HasConversion<int>()
+                            .IsRequired();
+
                      builder.Property(x => x.ResponseMessage)
                             .HasColumnName("response_message")
                             .HasMaxLength(500);
@@ -68,6 +73,7 @@ namespace SRSS.IAM.Repositories.Configurations
                      builder.HasIndex(x => x.ProjectId);
                      builder.HasIndex(x => x.InvitedUserId);
                      builder.HasIndex(x => x.Status);
+                     builder.HasIndex(x => new { x.ProjectId, x.InvitedUserId, x.Status });
               }
        }
 }

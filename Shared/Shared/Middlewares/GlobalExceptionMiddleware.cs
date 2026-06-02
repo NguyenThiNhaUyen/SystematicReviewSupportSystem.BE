@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Shared.Builder;
 using Shared.Exceptions;
@@ -23,30 +24,57 @@ namespace Shared.Middlewares
             Exception exception,
             CancellationToken cancellationToken)
         {
-            _logger.LogError(exception, "❌ An error occurred: {Message}", exception.Message);
+            _logger.LogError(exception, "An error occurred: {Message}", exception.Message);
 
             object response;
             int statusCode;
+
             if (exception is BaseDomainException domainEx)
             {
                 statusCode = (int)domainEx.StatusCode;
-                var errors = new List<ApiError> { new ApiError { Code = domainEx.ErrorCode, Message = domainEx.Message } };
+                var errors = new List<ApiError>
+                {
+                    new() { Code = domainEx.ErrorCode, Message = domainEx.Message }
+                };
 
                 response = statusCode switch
                 {
-                    400 => ResponseBuilder.BadRequest("Yêu cầu không hợp lệ ", errors),
+                    400 => ResponseBuilder.BadRequest("Yeu cau khong hop le", errors),
                     401 => ResponseBuilder.Unauthorized(domainEx.Message),
                     403 => ResponseBuilder.Forbidden(domainEx.Message),
                     404 => ResponseBuilder.NotFound(domainEx.Message),
                     409 => ResponseBuilder.Conflict(domainEx.Message, errors),
-                    429 => ResponseBuilder.Error("Quá nhiều yêu cầu. Vui lòng thử lại sau.", errors),
-                    _ => ResponseBuilder.Error(domainEx.Message)
+                    429 => ResponseBuilder.Error("Qua nhieu yeu cau. Vui long thu lai sau.", errors),
+                    _ => ResponseBuilder.Error(domainEx.Message, errors)
                 };
             }
-
+            else if (exception is UnauthorizedAccessException)
+            {
+                statusCode = (int)HttpStatusCode.Unauthorized;
+                response = ResponseBuilder.Unauthorized(exception.Message);
+            }
+            else if (exception is KeyNotFoundException)
+            {
+                statusCode = (int)HttpStatusCode.NotFound;
+                response = ResponseBuilder.NotFound(exception.Message);
+            }
+            else if (exception is ArgumentException or FormatException)
+            {
+                statusCode = (int)HttpStatusCode.BadRequest;
+                response = ResponseBuilder.BadRequest(exception.Message);
+            }
+            else if (exception is InvalidOperationException)
+            {
+                statusCode = (int)HttpStatusCode.BadRequest;
+                response = ResponseBuilder.BadRequest(exception.Message);
+            }
+            else if (exception is DbUpdateException)
+            {
+                statusCode = (int)HttpStatusCode.Conflict;
+                response = ResponseBuilder.Conflict("Database update failed. Please check whether the referenced data exists or already conflicts.");
+            }
             else
             {
-                // Lỗi không mong đợi
                 statusCode = (int)HttpStatusCode.InternalServerError;
                 response = ResponseBuilder.InternalServerError(exception.Message);
             }

@@ -2887,7 +2887,8 @@ namespace SRSS.IAM.Repositories.Migrations
                         .HasColumnName("response_message");
 
                     b.Property<int>("Role")
-                        .HasColumnType("integer");
+                        .HasColumnType("integer")
+                        .HasColumnName("role");
 
                     b.Property<int>("Status")
                         .HasColumnType("integer")
@@ -2900,6 +2901,8 @@ namespace SRSS.IAM.Repositories.Migrations
                     b.HasIndex("InvitedUserId");
 
                     b.HasIndex("ProjectId");
+
+                    b.HasIndex("ProjectId", "InvitedUserId", "Status");
 
                     b.HasIndex("Status");
 
