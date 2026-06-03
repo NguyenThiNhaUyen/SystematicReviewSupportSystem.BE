@@ -27,6 +27,12 @@ namespace SRSS.IAM.Repositories.Entities
             CreatedAt = DateTimeOffset.UtcNow;
         }
 
+        public void ChangeRole(ProjectRole role)
+        {
+            Role = role;
+            ModifiedAt = DateTimeOffset.UtcNow;
+        }
+
         public ICollection<PaperAssignment> PaperAssignments { get; set; } = new List<PaperAssignment>();
     }
     public enum ProjectRole

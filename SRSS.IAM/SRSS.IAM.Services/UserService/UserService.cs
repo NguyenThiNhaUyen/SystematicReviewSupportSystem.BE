@@ -61,9 +61,9 @@ namespace SRSS.IAM.Services.UserService
             }
 
             var trimmedKeyword = keyword.Trim();
-            if (trimmedKeyword.Length < 3)
+            if (trimmedKeyword.Length < 2)
             {
-                throw new ArgumentException("Search keyword must be at least 3 characters long.");
+                throw new ArgumentException("Search keyword must be at least 2 characters long.");
             }
 
             var users = await _unitOfWork.Users.SearchUsersAsync(projectId, trimmedKeyword, limit);

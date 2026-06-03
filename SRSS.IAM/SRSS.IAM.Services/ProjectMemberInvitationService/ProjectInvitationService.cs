@@ -101,14 +101,9 @@ namespace SRSS.IAM.Services.ProjectMemberInvitationService
 
                     if (request.Role == ProjectRole.Leader)
                     {
-                        if (await _unitOfWork.SystematicReviewProjects.ProjectHasLeaderAsync(projectId))
-                        {
-                            throw new ConflictException("Project already has a leader.", "PROJECT_LEADER_EXISTS");
-                        }
-
                         if (await _unitOfWork.SystematicReviewProjects.HasPendingLeaderInvitationAsync(projectId))
                         {
-                            throw new ConflictException("Project already has a pending leader invitation.", "PENDING_LEADER_INVITATION_EXISTS");
+                            throw new InvalidOperationException("A pending leader replacement invitation already exists.");
                         }
                     }
 
@@ -215,7 +210,8 @@ namespace SRSS.IAM.Services.ProjectMemberInvitationService
             }
 
             var members = await _unitOfWork.SystematicReviewProjects.GetMembersByProjectIdAsync(invitation.ProjectId);
-            if (members.Any(m => m.UserId == currentUserId))
+            var invitedMember = members.FirstOrDefault(m => m.UserId == currentUserId);
+            if (invitedMember != null && invitation.Role != ProjectRole.Leader)
             {
                 throw new ConflictException("You are already a member of this project.", "PROJECT_MEMBER_ALREADY_EXISTS");
             }
@@ -224,9 +220,30 @@ namespace SRSS.IAM.Services.ProjectMemberInvitationService
             try
             {
                 invitation.Accept();
-                var newMember = new ProjectMember(invitation.ProjectId, invitation.InvitedUserId, invitation.Role);
 
-                await _unitOfWork.SystematicReviewProjects.AddMemberAsync(newMember);
+                if (invitation.Role == ProjectRole.Leader)
+                {
+                    foreach (var currentLeader in members.Where(m => m.Role == ProjectRole.Leader && m.UserId != invitation.InvitedUserId))
+                    {
+                        currentLeader.ChangeRole(ProjectRole.Member);
+                    }
+
+                    if (invitedMember != null)
+                    {
+                        invitedMember.ChangeRole(ProjectRole.Leader);
+                    }
+                    else
+                    {
+                        var newLeader = new ProjectMember(invitation.ProjectId, invitation.InvitedUserId, ProjectRole.Leader);
+                        await _unitOfWork.SystematicReviewProjects.AddMemberAsync(newLeader);
+                    }
+                }
+                else
+                {
+                    var newMember = new ProjectMember(invitation.ProjectId, invitation.InvitedUserId, invitation.Role);
+                    await _unitOfWork.SystematicReviewProjects.AddMemberAsync(newMember);
+                }
+
                 await _unitOfWork.SaveChangesAsync();
                 await _unitOfWork.CommitTransactionAsync();
 

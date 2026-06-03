@@ -65,8 +65,8 @@ namespace Shared.Middlewares
             }
             else if (exception is InvalidOperationException)
             {
-                statusCode = (int)HttpStatusCode.BadRequest;
-                response = ResponseBuilder.BadRequest(exception.Message);
+                statusCode = (int)HttpStatusCode.Conflict;
+                response = ResponseBuilder.Conflict(exception.Message);
             }
             else if (exception is DbUpdateException)
             {
