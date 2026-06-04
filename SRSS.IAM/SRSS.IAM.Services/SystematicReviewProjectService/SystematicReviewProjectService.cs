@@ -6,6 +6,7 @@ using SRSS.IAM.Services.DTOs.Common;
 using Shared.Exceptions;
 using SRSS.IAM.Services.UserService;
 using SRSS.IAM.Services.DTOs.ResearchQuestion;
+using System.Text.Json;
 
 
 namespace SRSS.IAM.Services.SystematicReviewProjectService
@@ -73,6 +74,10 @@ namespace SRSS.IAM.Services.SystematicReviewProjectService
             {
                 throw new NotFoundException("Project not found.");
             }
+            if (project.IsDeleted)
+            {
+                throw new NotFoundException("Project not found.");
+            }
 
             var (userId, _) = _currentUserService.GetCurrentUser();
             bool isLeader = false;
@@ -101,7 +106,8 @@ namespace SRSS.IAM.Services.SystematicReviewProjectService
             if (pageSize < 1) pageSize = 10;
             if (pageSize > 100) pageSize = 100;
 
-            var query = _unitOfWork.SystematicReviewProjects.GetQueryable();
+            var query = _unitOfWork.SystematicReviewProjects.GetQueryable()
+                .Where(p => !p.IsDeleted);
 
             if (status.HasValue)
             {
@@ -139,6 +145,10 @@ namespace SRSS.IAM.Services.SystematicReviewProjectService
             {
                 throw new InvalidOperationException($"Project with ID {request.Id} not found.");
             }
+            if (project.IsDeleted)
+            {
+                throw new NotFoundException("Project not found.");
+            }
 
             if (!string.IsNullOrWhiteSpace(request.Title))
             {
@@ -173,6 +183,10 @@ namespace SRSS.IAM.Services.SystematicReviewProjectService
             if (project == null)
             {
                 throw new InvalidOperationException($"Project with ID {request.Id} not found.");
+            }
+            if (project.IsDeleted)
+            {
+                throw new NotFoundException("Project not found.");
             }
 
             var (userId, _) = _currentUserService.GetCurrentUser();
@@ -209,6 +223,10 @@ namespace SRSS.IAM.Services.SystematicReviewProjectService
             {
                 throw new InvalidOperationException($"Project with ID {id} not found.");
             }
+            if (project.IsDeleted)
+            {
+                throw new NotFoundException("Project not found.");
+            }
 
             project.Activate();
 
@@ -228,6 +246,10 @@ namespace SRSS.IAM.Services.SystematicReviewProjectService
             if (project == null)
             {
                 throw new InvalidOperationException($"Project with ID {id} not found.");
+            }
+            if (project.IsDeleted)
+            {
+                throw new NotFoundException("Project not found.");
             }
 
             project.Complete();
@@ -257,11 +279,16 @@ namespace SRSS.IAM.Services.SystematicReviewProjectService
             {
                 throw new NotFoundException("Project not found.");
             }
+            if (project.IsDeleted)
+            {
+                throw new NotFoundException("Project not found.");
+            }
             project.IsDeleted = true;
             project.ModifiedAt = DateTimeOffset.UtcNow;
             project.UpdatedByUserId = userIdGuid;
 
             await _unitOfWork.SystematicReviewProjects.UpdateAsync(project, cancellationToken);
+            await AddAuditLogAsync(project.Id, userIdGuid, "DeleteProject", "DeleteProject", "systematic_review_projects", project.Id.ToString(), null, new { project.Id, project.Title, project.IsDeleted }, new[] { "IsDeleted", "ModifiedAt", "UpdatedByUserId" }, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             return true;
@@ -275,7 +302,7 @@ namespace SRSS.IAM.Services.SystematicReviewProjectService
             CancellationToken cancellationToken = default)
         {
             var project = await _unitOfWork.SystematicReviewProjects
-                .FindSingleAsync(p => p.Id == projectId, cancellationToken: cancellationToken);
+                .FindSingleAsync(p => p.Id == projectId && !p.IsDeleted, cancellationToken: cancellationToken);
 
             if (project == null)
             {
@@ -321,6 +348,155 @@ namespace SRSS.IAM.Services.SystematicReviewProjectService
                 PageNumber = pageNumber,
                 PageSize = pageSize
             };
+        }
+
+        public async Task<ProjectMemberDto> ChangeProjectMemberRoleAsync(
+            Guid projectId,
+            Guid memberId,
+            ChangeProjectMemberRoleRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            EnsureAdmin();
+            EnsureValidProjectRole(request.Role);
+            await EnsureProjectExistsAsync(projectId, cancellationToken);
+
+            await _unitOfWork.BeginTransactionAsync(cancellationToken);
+            try
+            {
+                var members = await _unitOfWork.SystematicReviewProjects
+                    .GetProjectMembersForUpdateQueryable(projectId)
+                    .ToListAsync(cancellationToken);
+                var member = members.FirstOrDefault(m => m.UserId == memberId);
+
+                if (member == null)
+                {
+                    throw new NotFoundException("Project member not found.");
+                }
+
+                var oldRole = member.Role;
+
+                if (request.Role == ProjectRole.Leader)
+                {
+                    foreach (var currentLeader in members.Where(m => m.Role == ProjectRole.Leader && m.UserId != memberId))
+                    {
+                        currentLeader.ChangeRole(ProjectRole.Member);
+                    }
+                }
+
+                member.ChangeRole(request.Role);
+                EnsureSingleLeader(members);
+
+                var (userId, _) = _currentUserService.GetCurrentUser();
+                await AddAuditLogAsync(projectId, Guid.Parse(userId), "ChangeProjectMemberRole", "ChangeProjectMemberRole", "project_members", member.Id.ToString(), new { member.UserId, Role = oldRole.ToString() }, new { member.UserId, Role = member.Role.ToString() }, new[] { "Role" }, cancellationToken);
+
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                await _unitOfWork.CommitTransactionAsync(cancellationToken);
+
+                return MapToProjectMemberDto(member);
+            }
+            catch
+            {
+                await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+                throw;
+            }
+        }
+
+        public async Task<ProjectMemberDto> ReplaceProjectLeaderAsync(
+            Guid projectId,
+            ReplaceProjectLeaderRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            EnsureAdmin();
+            if (request.DemotePreviousLeaderToRole == ProjectRole.Leader)
+            {
+                throw new BadRequestException("Previous leader must be demoted to a non-leader role.");
+            }
+
+            await EnsureProjectExistsAsync(projectId, cancellationToken);
+
+            await _unitOfWork.BeginTransactionAsync(cancellationToken);
+            try
+            {
+                var members = await _unitOfWork.SystematicReviewProjects
+                    .GetProjectMembersForUpdateQueryable(projectId)
+                    .ToListAsync(cancellationToken);
+                var newLeader = members.FirstOrDefault(m => m.UserId == request.MemberId);
+
+                if (newLeader == null)
+                {
+                    throw new NotFoundException("Replacement leader must be an existing project member.");
+                }
+
+                var oldLeader = members.FirstOrDefault(m => m.Role == ProjectRole.Leader && m.UserId != request.MemberId);
+                if (newLeader.Role == ProjectRole.Leader && oldLeader == null)
+                {
+                    throw new ConflictException("Selected member is already the project leader.", "PROJECT_LEADER_UNCHANGED");
+                }
+
+                if (oldLeader != null)
+                {
+                    oldLeader.ChangeRole(request.DemotePreviousLeaderToRole);
+                }
+
+                var oldRole = newLeader.Role;
+                newLeader.ChangeRole(ProjectRole.Leader);
+                EnsureSingleLeader(members);
+
+                var (userId, _) = _currentUserService.GetCurrentUser();
+                await AddAuditLogAsync(projectId, Guid.Parse(userId), "ReplaceProjectLeader", "ReplaceProjectLeader", "project_members", newLeader.Id.ToString(), new { OldLeaderUserId = oldLeader?.UserId, NewLeaderUserId = request.MemberId, NewLeaderOldRole = oldRole.ToString() }, new { NewLeaderUserId = request.MemberId, NewLeaderRole = ProjectRole.Leader.ToString(), OldLeaderRole = oldLeader?.Role.ToString() }, new[] { "Role" }, cancellationToken);
+
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                await _unitOfWork.CommitTransactionAsync(cancellationToken);
+
+                return MapToProjectMemberDto(newLeader);
+            }
+            catch
+            {
+                await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+                throw;
+            }
+        }
+
+        public async Task<bool> RemoveProjectMemberAsync(
+            Guid projectId,
+            Guid memberId,
+            CancellationToken cancellationToken = default)
+        {
+            EnsureAdmin();
+            await EnsureProjectExistsAsync(projectId, cancellationToken);
+
+            await _unitOfWork.BeginTransactionAsync(cancellationToken);
+            try
+            {
+                var member = await _unitOfWork.SystematicReviewProjects
+                    .GetProjectMembersForUpdateQueryable(projectId)
+                    .FirstOrDefaultAsync(m => m.UserId == memberId, cancellationToken);
+
+                if (member == null)
+                {
+                    throw new NotFoundException("Project member not found.");
+                }
+
+                var oldValue = new { member.UserId, Role = member.Role.ToString() };
+                await _unitOfWork.SystematicReviewProjects.RemoveMemberAsync(member);
+
+                var (userId, _) = _currentUserService.GetCurrentUser();
+                await AddAuditLogAsync(projectId, Guid.Parse(userId), "RemoveProjectMember", "RemoveProjectMember", "project_members", member.Id.ToString(), oldValue, null, new[] { "ProjectMembers" }, cancellationToken);
+
+                var changes = await _unitOfWork.SaveChangesAsync(cancellationToken);
+                if (changes == 0)
+                {
+                    throw new ConflictException("Project member was not removed.", "PROJECT_MEMBER_NOT_REMOVED");
+                }
+
+                await _unitOfWork.CommitTransactionAsync(cancellationToken);
+                return true;
+            }
+            catch
+            {
+                await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+                throw;
+            }
         }
 
         public async Task<PaginatedResponse<MyProjectResponse>> GetMyProjectsAsync(
@@ -418,7 +594,7 @@ namespace SRSS.IAM.Services.SystematicReviewProjectService
             CancellationToken cancellationToken = default)
         {
             var project = await _unitOfWork.SystematicReviewProjects
-                .FindSingleAsync(p => p.Id == projectId, cancellationToken: cancellationToken);
+                .FindSingleAsync(p => p.Id == projectId && !p.IsDeleted, cancellationToken: cancellationToken);
 
             if (project == null)
             {
@@ -450,7 +626,7 @@ namespace SRSS.IAM.Services.SystematicReviewProjectService
             CancellationToken cancellationToken = default)
         {
             var project = await _unitOfWork.SystematicReviewProjects
-                .FindSingleAsync(p => p.Id == projectId, cancellationToken: cancellationToken);
+                .FindSingleAsync(p => p.Id == projectId && !p.IsDeleted, cancellationToken: cancellationToken);
 
             if (project == null)
             {
@@ -480,7 +656,7 @@ namespace SRSS.IAM.Services.SystematicReviewProjectService
             CancellationToken cancellationToken = default)
         {
             var project = await _unitOfWork.SystematicReviewProjects
-                .FindSingleAsync(p => p.Id == projectId, cancellationToken: cancellationToken);
+                .FindSingleAsync(p => p.Id == projectId && !p.IsDeleted, cancellationToken: cancellationToken);
 
             if (project == null)
             {
@@ -579,6 +755,89 @@ namespace SRSS.IAM.Services.SystematicReviewProjectService
                 FullName = leader.User.FullName,
                 Username = leader.User.Username,
                 Email = leader.User.Email
+            };
+        }
+
+        private void EnsureAdmin()
+        {
+            var (_, role) = _currentUserService.GetCurrentUser();
+            if (role != Role.Admin.ToString())
+            {
+                throw new UnauthorizedAccessException("You are not authorized to manage project members.");
+            }
+        }
+
+        private static void EnsureValidProjectRole(ProjectRole role)
+        {
+            if (!Enum.IsDefined(typeof(ProjectRole), role))
+            {
+                throw new BadRequestException("Invalid project role.");
+            }
+        }
+
+        private async Task EnsureProjectExistsAsync(Guid projectId, CancellationToken cancellationToken)
+        {
+            var exists = await _unitOfWork.SystematicReviewProjects
+                .AnyAsync(p => p.Id == projectId && !p.IsDeleted, cancellationToken: cancellationToken);
+            if (!exists)
+            {
+                throw new NotFoundException("Project not found.");
+            }
+        }
+
+        private static void EnsureSingleLeader(IEnumerable<ProjectMember> members)
+        {
+            var leaderCount = members.Count(m => m.Role == ProjectRole.Leader);
+            if (leaderCount > 1)
+            {
+                throw new ConflictException("Project cannot have more than one leader.", "PROJECT_LEADER_LIMIT_EXCEEDED");
+            }
+        }
+
+        private async Task AddAuditLogAsync(
+            Guid projectId,
+            Guid userId,
+            string action,
+            string actionType,
+            string resourceType,
+            string resourceId,
+            object? oldValue,
+            object? newValue,
+            IEnumerable<string> affectedColumns,
+            CancellationToken cancellationToken)
+        {
+            var user = await _unitOfWork.Users.GetQueryable(isTracking: false)
+                .FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
+
+            await _unitOfWork.AuditLogs.AddAsync(new AuditLog
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = projectId,
+                UserId = userId.ToString(),
+                UserName = user?.Username ?? "System",
+                Action = action,
+                ActionType = actionType,
+                ResourceType = resourceType,
+                ResourceId = resourceId,
+                Importance = "medium",
+                OldValue = oldValue == null ? null : JsonSerializer.Serialize(oldValue),
+                NewValue = newValue == null ? null : JsonSerializer.Serialize(newValue),
+                AffectedColumns = JsonSerializer.Serialize(affectedColumns),
+                Timestamp = DateTime.UtcNow
+            }, cancellationToken);
+        }
+
+        private static ProjectMemberDto MapToProjectMemberDto(ProjectMember member)
+        {
+            return new ProjectMemberDto
+            {
+                UserId = member.UserId,
+                ProjectId = member.ProjectId,
+                Role = member.Role,
+                JoinedAt = member.JoinedAt,
+                UserName = member.User.Username,
+                FullName = member.User.FullName,
+                Email = member.User.Email
             };
         }
     }

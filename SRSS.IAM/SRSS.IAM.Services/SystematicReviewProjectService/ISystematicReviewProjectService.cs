@@ -49,6 +49,22 @@ namespace SRSS.IAM.Services.SystematicReviewProjectService
             int pageSize,
             CancellationToken cancellationToken = default);
 
+        Task<ProjectMemberDto> ChangeProjectMemberRoleAsync(
+            Guid projectId,
+            Guid memberId,
+            ChangeProjectMemberRoleRequest request,
+            CancellationToken cancellationToken = default);
+
+        Task<ProjectMemberDto> ReplaceProjectLeaderAsync(
+            Guid projectId,
+            ReplaceProjectLeaderRequest request,
+            CancellationToken cancellationToken = default);
+
+        Task<bool> RemoveProjectMemberAsync(
+            Guid projectId,
+            Guid memberId,
+            CancellationToken cancellationToken = default);
+
         Task<PaginatedResponse<MyProjectResponse>> GetMyProjectsAsync(
             ProjectStatus? status,
             int pageNumber,

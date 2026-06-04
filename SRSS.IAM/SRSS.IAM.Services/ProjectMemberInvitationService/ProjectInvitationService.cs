@@ -42,7 +42,7 @@ namespace SRSS.IAM.Services.ProjectMemberInvitationService
                 throw new BadRequestException("Duplicate users are not allowed in one invitation request.");
             }
 
-            var project = await _unitOfWork.SystematicReviewProjects.FindSingleAsync(p => p.Id == projectId, isTracking: true);
+            var project = await _unitOfWork.SystematicReviewProjects.FindSingleAsync(p => p.Id == projectId && !p.IsDeleted, isTracking: true);
             if (project == null)
             {
                 throw new NotFoundException($"Project with ID {projectId} not found.");
@@ -72,6 +72,11 @@ namespace SRSS.IAM.Services.ProjectMemberInvitationService
 
             var invitations = new List<ProjectMemberInvitation>();
             var members = await _unitOfWork.SystematicReviewProjects.GetMembersByProjectIdAsync(projectId);
+
+            if (request.Role == ProjectRole.Leader && members.Any(m => m.Role == ProjectRole.Leader))
+            {
+                throw new ConflictException("Project already has a leader. Use the replace leader endpoint instead.", "PROJECT_ALREADY_HAS_LEADER");
+            }
 
             await _unitOfWork.BeginTransactionAsync();
             try
@@ -103,7 +108,7 @@ namespace SRSS.IAM.Services.ProjectMemberInvitationService
                     {
                         if (await _unitOfWork.SystematicReviewProjects.HasPendingLeaderInvitationAsync(projectId))
                         {
-                            throw new InvalidOperationException("A pending leader replacement invitation already exists.");
+                            throw new ConflictException("A pending leader invitation already exists for this project.", "PENDING_LEADER_INVITATION_EXISTS");
                         }
                     }
 
@@ -216,6 +221,11 @@ namespace SRSS.IAM.Services.ProjectMemberInvitationService
                 throw new ConflictException("You are already a member of this project.", "PROJECT_MEMBER_ALREADY_EXISTS");
             }
 
+            if (invitation.Role == ProjectRole.Leader && members.Any(m => m.Role == ProjectRole.Leader && m.UserId != invitation.InvitedUserId))
+            {
+                throw new ConflictException("Project already has a leader. Ask an Admin to replace the leader.", "PROJECT_ALREADY_HAS_LEADER");
+            }
+
             await _unitOfWork.BeginTransactionAsync();
             try
             {
@@ -223,11 +233,6 @@ namespace SRSS.IAM.Services.ProjectMemberInvitationService
 
                 if (invitation.Role == ProjectRole.Leader)
                 {
-                    foreach (var currentLeader in members.Where(m => m.Role == ProjectRole.Leader && m.UserId != invitation.InvitedUserId))
-                    {
-                        currentLeader.ChangeRole(ProjectRole.Member);
-                    }
-
                     if (invitedMember != null)
                     {
                         invitedMember.ChangeRole(ProjectRole.Leader);

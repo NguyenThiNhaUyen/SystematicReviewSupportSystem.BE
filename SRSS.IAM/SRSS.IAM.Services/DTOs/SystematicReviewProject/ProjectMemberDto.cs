@@ -12,4 +12,15 @@ namespace SRSS.IAM.Services.DTOs.SystematicReviewProject
         public string FullName { get; set; } = string.Empty;
         public string Email { get; set; } = string.Empty;
     }
+
+    public class ChangeProjectMemberRoleRequest
+    {
+        public ProjectRole Role { get; set; }
+    }
+
+    public class ReplaceProjectLeaderRequest
+    {
+        public Guid MemberId { get; set; }
+        public ProjectRole DemotePreviousLeaderToRole { get; set; } = ProjectRole.Member;
+    }
 }

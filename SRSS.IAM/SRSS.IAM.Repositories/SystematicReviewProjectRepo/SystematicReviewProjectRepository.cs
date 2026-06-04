@@ -22,7 +22,7 @@ namespace SRSS.IAM.Repositories.SystematicReviewProjectRepo
         public async Task<IEnumerable<SystematicReviewProject>> GetActiveProjectsAsync(CancellationToken cancellationToken = default)
         {
             return await _context.SystematicReviewProjects
-                .Where(p => p.Status == ProjectStatus.Active)
+                .Where(p => p.Status == ProjectStatus.Active && !p.IsDeleted)
                 .Include(p => p.ReviewProcesses)
                 .ToListAsync(cancellationToken);
         }
@@ -37,7 +37,7 @@ namespace SRSS.IAM.Repositories.SystematicReviewProjectRepo
 
         public IQueryable<SystematicReviewProject> GetQueryable()
         {
-            return _context.SystematicReviewProjects.AsQueryable();
+            return _context.SystematicReviewProjects.Where(p => !p.IsDeleted).AsQueryable();
         }
  
         public IQueryable<ProjectMember> GetProjectMembersQueryable(Guid projectId)
@@ -46,6 +46,13 @@ namespace SRSS.IAM.Repositories.SystematicReviewProjectRepo
                 .Include(m => m.User)
                 .Where(m => m.ProjectId == projectId)
                 .AsNoTracking();
+        }
+
+        public IQueryable<ProjectMember> GetProjectMembersForUpdateQueryable(Guid projectId)
+        {
+            return _context.ProjectMembers
+                .Include(m => m.User)
+                .Where(m => m.ProjectId == projectId);
         }
 
         public async Task<bool> ExistsPendingInvitationAsync(Guid projectId, Guid userId)
@@ -70,7 +77,7 @@ namespace SRSS.IAM.Repositories.SystematicReviewProjectRepo
         {
             return await _context.Set<ProjectMember>()
                 .Include(m => m.Project)
-                .Where(m => m.UserId == userId)
+                .Where(m => m.UserId == userId && !m.Project.IsDeleted)
                 .AsNoTracking()
                 .ToListAsync();
         }
@@ -79,13 +86,19 @@ namespace SRSS.IAM.Repositories.SystematicReviewProjectRepo
         {
             return _context.Set<ProjectMember>()
                 .Include(m => m.Project)
-                .Where(m => m.UserId == userId)
+                .Where(m => m.UserId == userId && !m.Project.IsDeleted)
                 .AsNoTracking();
         }
 
         public async Task AddMemberAsync(ProjectMember member)
         {
             await _context.ProjectMembers.AddAsync(member);
+        }
+
+        public Task RemoveMemberAsync(ProjectMember member)
+        {
+            _context.ProjectMembers.Remove(member);
+            return Task.CompletedTask;
         }
 
         public async Task<bool> IsProjectLeaderAsync(Guid projectId, Guid userId)

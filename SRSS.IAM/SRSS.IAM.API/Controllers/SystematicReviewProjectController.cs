@@ -61,6 +61,7 @@ namespace SRSS.IAM.API.Controllers
         /// <param name="cancellationToken">Cancellation token</param>
         /// <returns>Project details</returns>
         [HttpGet("{id}")]
+        [HttpGet("/api/admin/projects/{id}")]
         public async Task<ActionResult<ApiResponse<SystematicReviewProjectDetailResponse>>> GetProjectById(
             [FromRoute] Guid id,
             CancellationToken cancellationToken)
@@ -80,6 +81,7 @@ namespace SRSS.IAM.API.Controllers
         /// <param name="cancellationToken">Cancellation token</param>
         /// <returns>Paginated list of projects</returns>
         [HttpGet]
+        [HttpGet("/api/admin/projects")]
         public async Task<ActionResult<ApiResponse<PaginatedResponse<SystematicReviewProjectResponse>>>> GetProjects(
             [FromQuery] ProjectStatus? status,
             [FromQuery] int pageNumber = 1,
@@ -96,6 +98,7 @@ namespace SRSS.IAM.API.Controllers
         /// <param name="request">Export parameters</param>
         /// <returns>Excel file (.xlsx)</returns>
         [HttpGet("export/excel")]
+        [HttpGet("/api/admin/projects/export/excel")]
         public async Task<IActionResult> ExportToExcel([FromQuery] ProjectExportRequest request)
         {
             var fileBytes = await _projectExportService.ExportProjectsToExcelAsync(request);
@@ -186,6 +189,7 @@ namespace SRSS.IAM.API.Controllers
         /// <param name="cancellationToken">Cancellation token</param>
         /// <returns>Success status</returns>
         [HttpDelete("{id}")]
+        [HttpDelete("/api/admin/projects/{id}")]
         public async Task<ActionResult<ApiResponse>> DeleteProject(
             [FromRoute] Guid id,
             CancellationToken cancellationToken)
@@ -206,6 +210,7 @@ namespace SRSS.IAM.API.Controllers
         /// <param name="cancellationToken">Cancellation token</param>
         /// <returns>Paginated list of project members</returns>
         [HttpGet("{projectId}/members")]
+        [HttpGet("/api/admin/projects/{projectId}/members")]
         public async Task<ActionResult<ApiResponse<PaginatedResponse<ProjectMemberDto>>>> GetProjectMembers(
             [FromRoute] Guid projectId,
             [FromQuery] string? search,
@@ -215,6 +220,46 @@ namespace SRSS.IAM.API.Controllers
         {
             var result = await _projectService.GetProjectMembersAsync(projectId, search, pageNumber, pageSize, cancellationToken);
             return Ok(result, "Project members retrieved successfully.");
+        }
+
+        /// <summary>
+        /// Change a project member role.
+        /// </summary>
+        [HttpPut("/api/admin/projects/{projectId}/members/{memberId}/role")]
+        public async Task<ActionResult<ApiResponse<ProjectMemberDto>>> ChangeProjectMemberRole(
+            [FromRoute] Guid projectId,
+            [FromRoute] Guid memberId,
+            [FromBody] ChangeProjectMemberRoleRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            var result = await _projectService.ChangeProjectMemberRoleAsync(projectId, memberId, request, cancellationToken);
+            return Ok(result, "Project member role updated successfully.");
+        }
+
+        /// <summary>
+        /// Remove a project member.
+        /// </summary>
+        [HttpDelete("/api/admin/projects/{projectId}/members/{memberId}")]
+        public async Task<ActionResult<ApiResponse>> RemoveProjectMember(
+            [FromRoute] Guid projectId,
+            [FromRoute] Guid memberId,
+            CancellationToken cancellationToken = default)
+        {
+            await _projectService.RemoveProjectMemberAsync(projectId, memberId, cancellationToken);
+            return Ok("Project member removed successfully.");
+        }
+
+        /// <summary>
+        /// Replace a project leader with an existing member.
+        /// </summary>
+        [HttpPut("/api/admin/projects/{projectId}/leader")]
+        public async Task<ActionResult<ApiResponse<ProjectMemberDto>>> ReplaceProjectLeader(
+            [FromRoute] Guid projectId,
+            [FromBody] ReplaceProjectLeaderRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            var result = await _projectService.ReplaceProjectLeaderAsync(projectId, request, cancellationToken);
+            return Ok(result, "Project leader replaced successfully.");
         }
 
         /// <summary>
@@ -256,6 +301,7 @@ namespace SRSS.IAM.API.Controllers
         /// <param name="request">Invitation request</param>
         /// <returns>Success response</returns>
         [HttpPost("{projectId}/invitations")]
+        [HttpPost("/api/admin/projects/{projectId}/invitations")]
         public async Task<ActionResult<ApiResponse>> CreateInvitations(
             [FromRoute] Guid projectId,
             [FromBody] CreateProjectInvitationRequest request)
@@ -272,6 +318,7 @@ namespace SRSS.IAM.API.Controllers
         /// <param name="status">Optional invitation status filter</param>
         /// <returns>List of project invitations</returns>
         [HttpGet("{projectId}/invitations")]
+        [HttpGet("/api/admin/projects/{projectId}/invitations")]
         public async Task<ActionResult<ApiResponse<IEnumerable<ProjectInvitationResponse>>>> GetProjectInvitations(
             [FromRoute] Guid projectId,
             [FromQuery] ProjectMemberInvitationStatus? status = ProjectMemberInvitationStatus.Pending)
@@ -288,6 +335,7 @@ namespace SRSS.IAM.API.Controllers
         /// <param name="invitationId">Invitation ID</param>
         /// <returns>Success response</returns>
         [HttpDelete("{projectId}/invitations/{invitationId}")]
+        [HttpDelete("/api/admin/projects/{projectId}/invitations/{invitationId}")]
         public async Task<ActionResult<ApiResponse>> CancelProjectInvitation(
             [FromRoute] Guid projectId,
             [FromRoute] Guid invitationId)

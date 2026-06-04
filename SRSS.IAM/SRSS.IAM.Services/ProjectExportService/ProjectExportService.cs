@@ -19,6 +19,7 @@ namespace SRSS.IAM.Services.ProjectExportService
         public async Task<byte[]> ExportProjectsToExcelAsync(ProjectExportRequest request)
         {
             var projects = await _unitOfWork.SystematicReviewProjects.GetQueryable()
+                .Where(p => !p.IsDeleted)
                 .Include(p => p.ReviewProcesses)
                 .Include(p => p.ProjectMembers)
                     .ThenInclude(pm => pm.User)
