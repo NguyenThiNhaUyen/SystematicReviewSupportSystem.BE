@@ -6,6 +6,7 @@ on:
       - main
       - dev
 
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -18,11 +19,10 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           password: ${{ secrets.VPS_PASSWORD }}
           script: |
-            cd /opt/app
+            cd /opt/SystematicLiteratureReviewSystem.BE
             git fetch origin
             git checkout ${{ github.ref_name }} || git checkout -b ${{ github.ref_name }} origin/${{ github.ref_name }}
-            git pull origin ${{ github.ref_name }}
-            mkdir -p backups
-            docker compose exec -T db pg_dump -U postgres "SRSS.IAM" > backups/srss_$(date +%F_%H-%M).sql
+            git reset --hard origin/${{ github.ref_name }}
+            docker compose down
             docker compose up -d --build
             docker ps
