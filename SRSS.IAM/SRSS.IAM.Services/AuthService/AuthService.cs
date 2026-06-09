@@ -1,5 +1,7 @@
 using Google.Apis.Auth;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Shared.Cache;
 using Shared.Exceptions;
@@ -11,6 +13,7 @@ using SRSS.IAM.Services.DTOs.User;
 using SRSS.IAM.Services.JWTService;
 using SRSS.IAM.Services.Mappers;
 using SRSS.IAM.Services.RefreshTokenService;
+using System.Data.Common;
 
 namespace SRSS.IAM.Services.AuthService
 {
@@ -23,8 +26,17 @@ namespace SRSS.IAM.Services.AuthService
         private readonly JwtSettings _jwtSettings;
         private readonly IRedisCacheService _redisService;
         private readonly GoogleAuthSettings _googleAuthSettings;
+        private readonly ILogger<AuthService> _logger;
 
-        public AuthService(IUnitOfWork unitOfWork, IPasswordHasher<User> passwordHasher, IJwtService jwtService, IRefreshTokenService refreshTokenService, IOptions<JwtSettings> jwtSettings, IRedisCacheService redisService, IOptions<GoogleAuthSettings> googleAuthSettings)
+        public AuthService(
+            IUnitOfWork unitOfWork,
+            IPasswordHasher<User> passwordHasher,
+            IJwtService jwtService,
+            IRefreshTokenService refreshTokenService,
+            IOptions<JwtSettings> jwtSettings,
+            IRedisCacheService redisService,
+            IOptions<GoogleAuthSettings> googleAuthSettings,
+            ILogger<AuthService> logger)
         {
             _unitOfWork = unitOfWork;
             _passwordHasher = passwordHasher;
@@ -33,60 +45,77 @@ namespace SRSS.IAM.Services.AuthService
             _jwtSettings = jwtSettings.Value;
             _redisService = redisService;
             _googleAuthSettings = googleAuthSettings.Value;
+            _logger = logger;
         }
 
         public async Task<LoginResponse> LoginAsync(LoginRequest request)
         {
-            string username = request.KeyLogin;
-            string email = request.KeyLogin;
-            var usernameNormalized = username.Trim().ToLower();
-            var emailNormalized = email.Trim().ToLower();
-
-            var existingUser = await _unitOfWork.Users.FindSingleAsync(u =>
-                u.Username.ToLower() == usernameNormalized
-                || u.Email.ToLower() == emailNormalized
-            );
-            if (existingUser == null)
+            try
             {
-                throw new NotFoundException("Người dùng không tồn tại");
-            }
-            if (!existingUser.IsActive)
-            {
-                throw new ForbiddenException("Tài khoản đã bị vô hiệu hóa");
-            }
+                var keyLoginNormalized = request.EffectiveKeyLogin.Trim().ToLower();
 
-            // Verify password
-            var verifyResult = _passwordHasher.VerifyHashedPassword(existingUser, existingUser.Password, request.Password);
-            if (verifyResult == PasswordVerificationResult.Failed)
-            {
-                throw new InvalidCredentialsException("Mật khẩu không chính xác");
-            }
-            var accessToken = _jwtService.GenerateAccessToken(existingUser);
-            await _unitOfWork.Users.UpdateAsync(existingUser);
-            await _unitOfWork.SaveChangesAsync();
+                var existingUser = await _unitOfWork.Users.FindSingleAsync(u =>
+                    u.Username.ToLower() == keyLoginNormalized
+                    || u.Email.ToLower() == keyLoginNormalized);
 
-            return CreateLoginResponse(existingUser, accessToken);
+                if (existingUser == null)
+                {
+                    throw new InvalidCredentialsException("Thong tin dang nhap khong chinh xac");
+                }
+
+                if (!existingUser.IsActive)
+                {
+                    throw new ForbiddenException("Tai khoan da bi vo hieu hoa");
+                }
+
+                var verifyResult = _passwordHasher.VerifyHashedPassword(existingUser, existingUser.Password ?? string.Empty, request.Password);
+                if (verifyResult == PasswordVerificationResult.Failed)
+                {
+                    throw new InvalidCredentialsException("Thong tin dang nhap khong chinh xac");
+                }
+
+                var accessToken = _jwtService.GenerateAccessToken(existingUser);
+                await _unitOfWork.Users.UpdateAsync(existingUser);
+                await _unitOfWork.SaveChangesAsync();
+
+                return CreateLoginResponse(existingUser, accessToken);
+            }
+            catch (BaseDomainException)
+            {
+                throw;
+            }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Database update failed during login.");
+                throw new ServiceUnavailableException("Khong the ket noi co so du lieu. Vui long thu lai sau.");
+            }
+            catch (DbException ex)
+            {
+                _logger.LogError(ex, "Database query failed during login.");
+                throw new ServiceUnavailableException("Khong the ket noi co so du lieu. Vui long thu lai sau.");
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError(ex, "Database operation failed during login.");
+                throw new ServiceUnavailableException("Khong the ket noi co so du lieu. Vui long thu lai sau.");
+            }
         }
 
         public async Task RegisterAsync(RegisterRequest request)
         {
-            // Check if username/email already exists
             var usernameNormalized = request.Username.Trim().ToLower();
             var emailNormalized = request.Email.Trim().ToLower();
 
             var existingUser = await _unitOfWork.Users.FindSingleAsync(u =>
                 u.Username.ToLower() == usernameNormalized
-                || u.Email.ToLower() == emailNormalized
-            );
+                || u.Email.ToLower() == emailNormalized);
 
             if (existingUser != null)
             {
-                throw new BadRequestException("Email/tên đăng nhập này đã được đăng kí");
+                throw new BadRequestException("Email/ten dang nhap nay da duoc dang ki");
             }
 
-
-            // Create and save user
-            var newUser = new User()
+            var newUser = new User
             {
                 Username = usernameNormalized,
                 FullName = request.FullName,
@@ -95,22 +124,20 @@ namespace SRSS.IAM.Services.AuthService
                 Password = _passwordHasher.HashPassword(null, request.Password),
                 IsActive = true,
             };
+
             await _unitOfWork.Users.AddAsync(newUser);
             await _unitOfWork.SaveChangesAsync();
         }
-
 
         public async Task<LoginResponse> GoogleLoginAsync(GoogleLoginRequest request)
         {
             try
             {
-                // Validate the Google IdToken
                 var payload = await GoogleJsonWebSignature.ValidateAsync(request.IdToken, new GoogleJsonWebSignature.ValidationSettings
                 {
                     Audience = new[] { _googleAuthSettings.ClientId }
                 });
 
-                // Check if user exists by Google ID or email
                 var user = await _unitOfWork.Users.FindSingleAsync(u =>
                     u.Email.ToLower() == payload.Email.ToLower());
 
@@ -120,27 +147,24 @@ namespace SRSS.IAM.Services.AuthService
                     {
                         FullName = payload.Name,
                         Email = payload.Email,
-                        Username = payload.Email.Split('@')[0], // Use email prefix as username
+                        Username = payload.Email.Split('@')[0],
                         Role = Role.Client,
                         IsActive = true,
                         Password = null
                     };
 
                     await _unitOfWork.Users.AddAsync(user);
-                    // Create user failed if no write happened 
                     if (await _unitOfWork.SaveChangesAsync() == 0)
                     {
-                        throw new Exception("Lỗi khi đăng kí người dùng với Google Oauth2");
+                        throw new Exception("Failed to create Google OAuth user");
                     }
                 }
                 else if (!user.IsActive)
                 {
-                    throw new ForbiddenException("Tài khoản đã bị vô hiệu hóa");
+                    throw new ForbiddenException("Tai khoan da bi vo hieu hoa");
                 }
 
-                // Generate access token
                 var accessToken = _jwtService.GenerateAccessToken(user);
-
                 return CreateLoginResponse(user, accessToken);
             }
             catch (InvalidJwtException)
@@ -151,8 +175,7 @@ namespace SRSS.IAM.Services.AuthService
 
         public async Task<GoogleOAuthUrlResponse> GenerateGoogleOAuthUrlAsync(GoogleOAuthUrlRequest request)
         {
-            // Build the Google OAuth 2.0 authorization URL
-            var state = Guid.NewGuid().ToString(); // Generate a unique state parameter for security
+            var state = Guid.NewGuid().ToString();
             var scope = Uri.EscapeDataString(_googleAuthSettings.Scope);
             var redirectUri = Uri.EscapeDataString(request.RedirectUrl);
             var clientId = Uri.EscapeDataString(_googleAuthSettings.ClientId);
@@ -174,20 +197,37 @@ namespace SRSS.IAM.Services.AuthService
 
         public async Task<LoginResponse> RefreshAsync(Guid userId)
         {
-            var user = await _unitOfWork.Users.FindSingleAsync(u => u.Id == userId)
-                ?? throw new NotFoundException("Người dùng không tồn tại");
-            if (user.IsActive == false)
+            try
             {
-                throw new ForbiddenException("Tài khoản đã bị vô hiệu hóa");
+                var user = await _unitOfWork.Users.FindSingleAsync(u => u.Id == userId)
+                    ?? throw new UnauthorizedException("Refresh token khong hop le hoac da het han");
+
+                if (!user.IsActive)
+                {
+                    throw new ForbiddenException("Tai khoan da bi vo hieu hoa");
+                }
+
+                var newAccessToken = _jwtService.GenerateAccessToken(user);
+                return CreateLoginResponse(user, newAccessToken);
             }
-            // Generate new access token
-            var newAccessToken = _jwtService.GenerateAccessToken(user);
-            return CreateLoginResponse(user, newAccessToken);
+            catch (BaseDomainException)
+            {
+                throw;
+            }
+            catch (DbException ex)
+            {
+                _logger.LogError(ex, "Database query failed during token refresh.");
+                throw new ServiceUnavailableException("Khong the ket noi co so du lieu. Vui long thu lai sau.");
+            }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError(ex, "Database operation failed during token refresh.");
+                throw new ServiceUnavailableException("Khong the ket noi co so du lieu. Vui long thu lai sau.");
+            }
         }
 
         public async Task LogoutAsync(string userId, string accessToken, TimeSpan accessTokenTtl)
         {
-            // 1. Revoke refresh token in DB
             var user = await _unitOfWork.Users.FindSingleAsync(u => u.Id == Guid.Parse(userId));
             if (user != null)
             {
@@ -197,11 +237,8 @@ namespace SRSS.IAM.Services.AuthService
                 await _unitOfWork.SaveChangesAsync();
             }
 
-            // 2. Blacklist access token in Redis
-            // Key: "blacklist:{accessToken}", Value: "revoked", Expiry: accessTokenTtl
             await _redisService.SetAsync($"iam:blacklist:{accessToken}", "revoked", accessTokenTtl);
         }
-
 
         public async Task<UserProfileResponse> GetUserProfileAsync(string userId)
         {
@@ -209,10 +246,10 @@ namespace SRSS.IAM.Services.AuthService
             var user = await _unitOfWork.Users.FindSingleAsync(u => u.Id == userGuid);
             if (user == null)
             {
-                throw new NotFoundException("Người dùng không tồn tại");
+                throw new NotFoundException("Nguoi dung khong ton tai");
             }
-            return user.ToUserProfileResponse();
 
+            return user.ToUserProfileResponse();
         }
 
         public async Task<AuthMeResponse> GetAuthMeAsync(string userId)
@@ -221,8 +258,9 @@ namespace SRSS.IAM.Services.AuthService
             var user = await _unitOfWork.Users.FindSingleAsync(u => u.Id == userGuid);
             if (user == null)
             {
-                throw new NotFoundException("Người dùng không tồn tại");
+                throw new NotFoundException("Nguoi dung khong ton tai");
             }
+
             return user.ToAuthMeResponse();
         }
 

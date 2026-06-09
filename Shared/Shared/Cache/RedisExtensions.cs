@@ -25,10 +25,6 @@ namespace Shared.Cache
             IConfiguration configuration,
             string connectionStringKey = "ConnectionStrings:Redis")
         {
-            var startupConnectionString = GetRedisConnectionString(configuration, connectionStringKey);
-            Console.WriteLine("=== DEBUG REDIS CONNECTION STRING ===");
-            Console.WriteLine(startupConnectionString);
-
             // Register ConnectionMultiplexer as Singleton
             services.AddSingleton<IConnectionMultiplexer>(sp =>
             {

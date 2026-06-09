@@ -76,7 +76,7 @@ namespace Shared.Middlewares
             else
             {
                 statusCode = (int)HttpStatusCode.InternalServerError;
-                response = ResponseBuilder.InternalServerError(exception.Message);
+                response = ResponseBuilder.InternalServerError("Loi may chu noi bo. Vui long thu lai sau.");
             }
 
             httpContext.Response.StatusCode = statusCode;
